@@ -66,13 +66,23 @@ function isActive($page, $current_page) {
                     <i class="ph ph-receipt"></i> Transactions
                 </a>
             </li>
+            <li class="nav-item">
+                <a href="types.php" class="nav-link <?php echo isActive('types.php', $current_page); ?>">
+                    <i class="ph ph-chart-pie-slice"></i> Type
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="tips.php" class="nav-link <?php echo isActive('tips.php', $current_page); ?>">
+                    <i class="ph ph-hand-coins"></i> Tips
+                </a>
+            </li>
             <?php endif; ?>
 
-            <!-- Record Sale: visible to Cashier, Admin, Manager -->
+            <!-- Record Expense: visible to Admin, Manager, Cashier -->
             <?php if ($role === 'cashier' || $role === 'admin' || $role === 'manager'): ?>
             <li class="nav-item">
                 <a href="new_transaction.php" class="nav-link <?php echo isActive('new_transaction.php', $current_page); ?>">
-                    <i class="ph ph-plus-circle"></i> Record Sale
+                    <i class="ph ph-minus-circle"></i> Record Expense
                 </a>
             </li>
             <?php endif; ?>
@@ -106,11 +116,6 @@ function isActive($page, $current_page) {
                 <h3><?php echo ucfirst(str_replace('.php', '', $current_page)); ?></h3>
             </div>
             <div style="display: flex; gap: 1rem; align-items: center;">
-                <?php if ($role === 'cashier' || $role === 'admin' || $role === 'manager'): ?>
-                <button class="btn btn-primary" onclick="window.location.href='new_transaction.php'">
-                    <i class="ph ph-plus-circle"></i> New Sale
-                </button>
-                <?php endif; ?>
             </div>
         </header>
 

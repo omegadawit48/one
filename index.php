@@ -20,25 +20,45 @@ if ($role === 'cashier') {
     $tx_error = '';
     $tx_success = '';
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'record_sale') {
-        $amount = floatval($_POST['amount']);
+        $tip = floatval($_POST['tip'] ?? 0);
         $description = sanitize($conn, $_POST['description']);
-        $service_id = isset($_POST['service_id']) && $_POST['service_id'] !== '' ? intval($_POST['service_id']) : NULL;
+        $service_ids = $_POST['service_ids'] ?? [];
         $barber_id = isset($_POST['barber_id']) && $_POST['barber_id'] !== '' ? intval($_POST['barber_id']) : NULL;
         $payment_method = sanitize($conn, $_POST['payment_method']);
 
-        if ($amount <= 0) {
-            $tx_error = "Amount must be greater than zero.";
+        if (empty($service_ids)) {
+            $tx_error = "Please select at least one service.";
         } elseif (!$barber_id) {
-            $tx_error = "Please select the barber who performed this service.";
+            $tx_error = "Please select the barber who performed the service(s).";
         } elseif (!in_array($payment_method, ['cash', 'bank'])) {
             $tx_error = "Please select a valid payment method.";
         } else {
-            $stmt = $conn->prepare("INSERT INTO transactions (amount, type, description, payment_method, service_id, user_id, barber_id) VALUES (?, 'income', ?, ?, ?, ?, ?)");
-            $stmt->bind_param("dssiii", $amount, $description, $payment_method, $service_id, $user_id, $barber_id);
-            if ($stmt->execute()) {
+            $conn->begin_transaction();
+            try {
+                foreach ($service_ids as $index => $sid) {
+                    if (empty($sid)) continue;
+                    $service_id = intval($sid);
+                    
+                    // Calculate amount for this specific service
+                    $service_price = 0;
+                    $sp_res = $conn->query("SELECT price FROM services WHERE id = $service_id");
+                    if ($sp_res && $sp_row = $sp_res->fetch_assoc()) {
+                        $service_price = floatval($sp_row['price']);
+                    }
+                    
+                    // Only apply tip to the very first service in the list to avoid duplicate tips
+                    $row_tip = ($index === 0) ? $tip : 0;
+                    $amount = $service_price + $row_tip;
+                    
+                    $stmt = $conn->prepare("INSERT INTO transactions (amount, tip, type, description, payment_method, service_id, user_id, barber_id) VALUES (?, ?, 'income', ?, ?, ?, ?, ?)");
+                    $stmt->bind_param("ddssiii", $amount, $row_tip, $description, $payment_method, $service_id, $user_id, $barber_id);
+                    $stmt->execute();
+                }
+                $conn->commit();
                 $tx_success = "Sale recorded successfully!";
-            } else {
-                $tx_error = "Failed to record: " . $conn->error;
+            } catch (Exception $e) {
+                $conn->rollback();
+                $tx_error = "Failed to record: " . $e->getMessage();
             }
         }
     }
@@ -183,21 +203,30 @@ if ($role === 'cashier') {
                 </select>
             </div>
 
-            <div class="form-group">
-                <label class="form-label" for="service_id"><i class="ph ph-scissors" style="color: var(--accent-teal);"></i> Service</label>
-                <select id="service_id" name="service_id" class="form-control" style="background-color: var(--bg-dark);" onchange="updateAmountQuick()">
-                    <option value="" style="background: var(--bg-dark);">-- Custom / Other --</option>
-                    <?php while($s = $services_res->fetch_assoc()): ?>
-                        <option value="<?php echo $s['id']; ?>" data-price="<?php echo $s['price']; ?>" style="background: var(--bg-dark);">
-                            <?php echo htmlspecialchars($s['name']) . " - $" . number_format($s['price'], 2); ?>
-                        </option>
-                    <?php endwhile; ?>
-                </select>
+            <div class="form-group" id="services-container">
+                <label class="form-label"><i class="ph ph-scissors" style="color: var(--accent-teal);"></i> Services</label>
+                <div class="service-row" style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+                    <select name="service_ids[]" class="form-control" style="background-color: var(--bg-dark);" required>
+                        <option value="" style="background: var(--bg-dark);">-- Select Service --</option>
+                        <?php 
+                        $services_res->data_seek(0);
+                        while($s = $services_res->fetch_assoc()): 
+                        ?>
+                            <option value="<?php echo $s['id']; ?>" style="background: var(--bg-dark);">
+                                <?php echo htmlspecialchars($s['name']) . " - $" . number_format($s['price'], 2); ?>
+                            </option>
+                        <?php endwhile; ?>
+                    </select>
+                </div>
             </div>
+            
+            <button type="button" onclick="addServiceRow()" class="btn btn-outline" style="width: 100%; border-style: dashed; margin-bottom: 1rem; padding: 0.5rem; color: var(--text-secondary); border-color: var(--border-color);">
+                <i class="ph ph-plus"></i> Add Another Service
+            </button>
 
             <div class="form-group">
-                <label class="form-label" for="amount">Amount ($)</label>
-                <input type="number" step="0.01" id="amount" name="amount" class="form-control" required placeholder="0.00" style="font-size: 1.1rem; font-weight: bold;">
+                <label class="form-label" for="tip"><i class="ph ph-hand-coins" style="color: var(--accent-teal);"></i> Tip (Optional)</label>
+                <input type="number" step="0.01" id="tip" name="tip" class="form-control" placeholder="0.00" value="0" style="font-size: 1.1rem; font-weight: bold;">
             </div>
 
             <!-- Payment Method Toggle -->
@@ -254,7 +283,8 @@ if ($role === 'cashier') {
                 <th>Service</th>
                 <th>Barber</th>
                 <th>Payment</th>
-                <th>Amount</th>
+                <th>Sale Total</th>
+                <th>Tip</th>
             </tr>
         </thead>
         <tbody>
@@ -277,6 +307,17 @@ if ($role === 'cashier') {
                             <?php endif; ?>
                         </td>
                         <td class="text-success" style="font-weight: 600;">$<?php echo number_format($txn['amount'], 2); ?></td>
+                        <td>
+                            <?php if ($txn['tip'] > 0): ?>
+                                <?php if ($txn['tip_status'] === 'paid'): ?>
+                                    <span style="color: var(--text-secondary); font-size: 0.85rem; font-style: italic;"><i class="ph ph-check-circle" style="color: var(--accent-teal);"></i> Paid out</span>
+                                <?php else: ?>
+                                    <span style="color: #fbbf24; font-weight: 700;">$<?php echo number_format($txn['tip'], 2); ?></span>
+                                <?php endif; ?>
+                            <?php else: ?>
+                                <span style="color: var(--text-secondary);">-</span>
+                            <?php endif; ?>
+                        </td>
                     </tr>
                 <?php endwhile; ?>
             <?php else: ?>
@@ -287,12 +328,33 @@ if ($role === 'cashier') {
 </div>
 
 <script>
-    function updateAmountQuick() {
-        const sel = document.getElementById('service_id');
-        const opt = sel.options[sel.selectedIndex];
-        const price = opt.getAttribute('data-price');
-        if (price) document.getElementById('amount').value = price;
-    }
+function addServiceRow() {
+    const container = document.getElementById('services-container');
+    const firstRow = container.querySelector('.service-row');
+    const newRow = document.createElement('div');
+    newRow.className = 'service-row';
+    newRow.style.display = 'flex';
+    newRow.style.gap = '0.5rem';
+    newRow.style.marginBottom = '0.5rem';
+    
+    // Clone select
+    const select = firstRow.querySelector('select').cloneNode(true);
+    select.value = '';
+    
+    // Create remove button
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'btn btn-outline';
+    removeBtn.style.padding = '0 0.75rem';
+    removeBtn.style.borderColor = 'var(--accent-rose)';
+    removeBtn.style.color = 'var(--accent-rose)';
+    removeBtn.innerHTML = '<i class="ph ph-trash"></i>';
+    removeBtn.onclick = function() { newRow.remove(); };
+    
+    newRow.appendChild(select);
+    newRow.appendChild(removeBtn);
+    container.appendChild(newRow);
+}
 </script>
 
 <?php 
@@ -420,7 +482,8 @@ $recent_tx = $conn->query($recent_tx_query);
                 <th>Type</th>
                 <th>Description / Service</th>
                 <th>Payment</th>
-                <th>Amount</th>
+                <th>Sale Total</th>
+                <th>Tip</th>
                 <th>Barber</th>
                 <th>Recorded By</th>
             </tr>
@@ -447,6 +510,17 @@ $recent_tx = $conn->query($recent_tx_query);
                         </td>
                         <td class="<?php echo $txn['type'] == 'income' ? 'text-success' : 'text-danger'; ?>">
                             $<?php echo number_format($txn['amount'], 2); ?>
+                        </td>
+                        <td>
+                            <?php if ($txn['type'] === 'income' && $txn['tip'] > 0): ?>
+                                <?php if ($txn['tip_status'] === 'paid'): ?>
+                                    <span style="color: var(--text-secondary); font-size: 0.85rem; font-style: italic;"><i class="ph ph-check-circle" style="color: var(--accent-teal);"></i> Paid out</span>
+                                <?php else: ?>
+                                    <span style="color: #fbbf24; font-weight: 700;">$<?php echo number_format($txn['tip'], 2); ?></span>
+                                <?php endif; ?>
+                            <?php else: ?>
+                                <span style="color: var(--text-secondary);">-</span>
+                            <?php endif; ?>
                         </td>
                         <td><?php echo htmlspecialchars($txn['barber_name'] ?? '-'); ?></td>
                         <td><?php echo htmlspecialchars($txn['staff_name']); ?></td>
