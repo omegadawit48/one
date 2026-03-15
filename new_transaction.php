@@ -4,26 +4,38 @@ require_once 'includes/db.php';
 require_once 'includes/header.php';
 
 $user_id = $_SESSION['user_id'];
+$role = $_SESSION['role'];
 $error = '';
 $success = '';
 
+// Only Admin, Manager, and Cashier can record transactions
+if ($role === 'staff') {
+    die("<div class='page-content'><h2>Access Denied</h2><p>Barbers cannot record transactions directly.</p></div>");
+}
+
 // Fetch active services for the dropdown
 $services_res = $conn->query("SELECT id, name, price, type FROM services ORDER BY name ASC");
+
+// Fetch barbers (staff role) for the cashier to associate with
+$barbers_res = $conn->query("SELECT id, username FROM users WHERE role = 'staff' ORDER BY username ASC");
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $type = sanitize($conn, $_POST['type']);
     $amount = floatval($_POST['amount']);
     $description = sanitize($conn, $_POST['description']);
     $service_id = isset($_POST['service_id']) && $_POST['service_id'] !== '' ? intval($_POST['service_id']) : NULL;
+    $barber_id = isset($_POST['barber_id']) && $_POST['barber_id'] !== '' ? intval($_POST['barber_id']) : NULL;
     
     // Validate inputs
     if ($amount <= 0) {
         $error = "Amount must be greater than zero.";
     } elseif (!in_array($type, ['income', 'expense'])) {
         $error = "Invalid transaction type.";
+    } elseif ($type === 'income' && $role === 'cashier' && !$barber_id) {
+        $error = "Please select the barber who performed this service.";
     } else {
-        $stmt = $conn->prepare("INSERT INTO transactions (amount, type, description, service_id, user_id) VALUES (?, ?, ?, ?, ?)");
-        $stmt->bind_param("dssii", $amount, $type, $description, $service_id, $user_id);
+        $stmt = $conn->prepare("INSERT INTO transactions (amount, type, description, service_id, user_id, barber_id) VALUES (?, ?, ?, ?, ?, ?)");
+        $stmt->bind_param("dssiii", $amount, $type, $description, $service_id, $user_id, $barber_id);
         
         if ($stmt->execute()) {
             $success = "Transaction recorded successfully!";
@@ -57,6 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php endif; ?>
 
         <form method="POST" action="">
+            <!-- Type Selection Cards -->
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
                 <label style="cursor: pointer; position: relative;">
                     <input type="radio" name="type" value="income" checked id="type-income" style="display:none;" onchange="updateFormMode()">
@@ -66,6 +79,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
                 </label>
                 
+                <?php if ($role === 'admin' || $role === 'manager'): ?>
                 <label style="cursor: pointer; position: relative;">
                     <input type="radio" name="type" value="expense" id="type-expense" style="display:none;" onchange="updateFormMode()">
                     <div class="glass-panel" id="card-expense" style="padding: 1.5rem; text-align: center; opacity: 0.6;">
@@ -73,6 +87,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <h4 style="color: var(--accent-rose);">Shop Expense</h4>
                     </div>
                 </label>
+                <?php endif; ?>
+            </div>
+
+            <!-- Barber Selection (visible to cashier, admin, manager) -->
+            <div id="barber-group" class="form-group">
+                <label class="form-label" for="barber_id">
+                    <i class="ph ph-user-circle" style="color: var(--accent-blue);"></i> Barber Who Performed Service
+                </label>
+                <select id="barber_id" name="barber_id" class="form-control" style="background-color: var(--bg-dark);" <?php echo $role === 'cashier' ? 'required' : ''; ?>>
+                    <option value="" style="background: var(--bg-dark);">-- Select Barber --</option>
+                    <?php while($b = $barbers_res->fetch_assoc()): ?>
+                        <option value="<?php echo $b['id']; ?>" style="background: var(--bg-dark);">
+                            <?php echo htmlspecialchars($b['username']); ?>
+                        </option>
+                    <?php endwhile; ?>
+                </select>
+                <small style="color: var(--text-secondary); display: block; margin-top: 0.5rem;">Select which barber performed this service.</small>
             </div>
 
             <div id="service-group" class="form-group">
@@ -114,28 +145,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         const cardIncome = document.getElementById('card-income');
         const cardExpense = document.getElementById('card-expense');
         const serviceGroup = document.getElementById('service-group');
+        const barberGroup = document.getElementById('barber-group');
         
         if (isIncome) {
             cardIncome.style.borderColor = 'var(--accent-teal)';
             cardIncome.style.borderWidth = '2px';
             cardIncome.style.opacity = '1';
             
-            cardExpense.style.borderColor = 'var(--border-color)';
-            cardExpense.style.borderWidth = '1px';
-            cardExpense.style.opacity = '0.6';
+            if (cardExpense) {
+                cardExpense.style.borderColor = 'var(--border-color)';
+                cardExpense.style.borderWidth = '1px';
+                cardExpense.style.opacity = '0.6';
+            }
             
             serviceGroup.style.display = 'block';
+            barberGroup.style.display = 'block';
         } else {
-            cardExpense.style.borderColor = 'var(--accent-rose)';
-            cardExpense.style.borderWidth = '2px';
-            cardExpense.style.opacity = '1';
+            if (cardExpense) {
+                cardExpense.style.borderColor = 'var(--accent-rose)';
+                cardExpense.style.borderWidth = '2px';
+                cardExpense.style.opacity = '1';
+            }
             
             cardIncome.style.borderColor = 'var(--border-color)';
             cardIncome.style.borderWidth = '1px';
             cardIncome.style.opacity = '0.6';
             
             serviceGroup.style.display = 'none';
-            document.getElementById('service_id').value = ''; // Reset selection
+            barberGroup.style.display = 'none';
+            document.getElementById('service_id').value = '';
+            document.getElementById('barber_id').value = '';
         }
     }
 

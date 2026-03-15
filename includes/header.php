@@ -41,21 +41,46 @@ function isActive($page, $current_page) {
         </div>
 
         <ul class="nav-menu">
+            <!-- Dashboard: visible to Admin, Manager, and Cashier -->
+            <?php if ($role !== 'staff'): ?>
             <li class="nav-item">
                 <a href="index.php" class="nav-link <?php echo isActive('index.php', $current_page); ?>">
                     <i class="ph ph-squares-four"></i> Dashboard
                 </a>
             </li>
+            <?php endif; ?>
+
+            <!-- Staff (Barbers) see only their profile -->
+            <?php if ($role === 'staff'): ?>
+            <li class="nav-item">
+                <a href="profile.php" class="nav-link <?php echo isActive('profile.php', $current_page); ?>">
+                    <i class="ph ph-user-circle"></i> My Profile
+                </a>
+            </li>
+            <?php endif; ?>
+
+            <!-- Transactions: visible to Admin, Manager, and Cashier -->
+            <?php if ($role !== 'staff'): ?>
             <li class="nav-item">
                 <a href="transactions.php" class="nav-link <?php echo isActive('transactions.php', $current_page); ?>">
                     <i class="ph ph-receipt"></i> Transactions
                 </a>
             </li>
+            <?php endif; ?>
+
+            <!-- Record Sale: visible to Cashier, Admin, Manager -->
+            <?php if ($role === 'cashier' || $role === 'admin' || $role === 'manager'): ?>
+            <li class="nav-item">
+                <a href="new_transaction.php" class="nav-link <?php echo isActive('new_transaction.php', $current_page); ?>">
+                    <i class="ph ph-plus-circle"></i> Record Sale
+                </a>
+            </li>
+            <?php endif; ?>
             
             <?php if ($role === 'admin' || $role === 'manager'): ?>
             <li class="nav-item">
                 <a href="services.php" class="nav-link <?php echo isActive('services.php', $current_page); ?>">
-                    <i class="ph ph-scissors"></i> Services list
+                    <i class="ph ph-scissors"></i> Services List
                 </a>
             </li>
             <li class="nav-item">
@@ -81,9 +106,11 @@ function isActive($page, $current_page) {
                 <h3><?php echo ucfirst(str_replace('.php', '', $current_page)); ?></h3>
             </div>
             <div style="display: flex; gap: 1rem; align-items: center;">
+                <?php if ($role === 'cashier' || $role === 'admin' || $role === 'manager'): ?>
                 <button class="btn btn-primary" onclick="window.location.href='new_transaction.php'">
                     <i class="ph ph-plus-circle"></i> New Sale
                 </button>
+                <?php endif; ?>
             </div>
         </header>
 

@@ -6,21 +6,28 @@ require_once 'includes/header.php';
 $role = $_SESSION['role'];
 $user_id = $_SESSION['user_id'];
 
-// Handling Filter Date
-$filter_date = isset($_GET['date']) ? sanitize($conn, $_GET['date']) : date('Y-m');
-$where_clause = "DATE_FORMAT(t.created_at, '%Y-%m') = '$filter_date'";
-
-// Filter by Role
+// Staff (Barbers) cannot access this page
 if ($role === 'staff') {
-    $where_clause .= " AND t.user_id = $user_id";
+    header('Location: profile.php');
+    exit;
+}
+
+// Cashier: can only see past 3 days
+if ($role === 'cashier') {
+    $where_clause = "DATE(t.created_at) >= DATE_SUB(CURDATE(), INTERVAL 3 DAY)";
+} else {
+    // Admin/Manager: filter by month
+    $filter_date = isset($_GET['date']) ? sanitize($conn, $_GET['date']) : date('Y-m');
+    $where_clause = "DATE_FORMAT(t.created_at, '%Y-%m') = '$filter_date'";
 }
 
 // Fetch Transactions
 $tx_query = "
-    SELECT t.*, s.name as service_name, u.username as staff_name
+    SELECT t.*, s.name as service_name, u.username as staff_name, b.username as barber_name
     FROM transactions t
     LEFT JOIN services s ON t.service_id = s.id
     LEFT JOIN users u ON t.user_id = u.id
+    LEFT JOIN users b ON t.barber_id = b.id
     WHERE $where_clause
     ORDER BY t.created_at DESC
 ";
@@ -34,7 +41,8 @@ if (isset($_GET['delete']) && $_SESSION['role'] === 'admin') {
     $del_stmt->bind_param("i", $del_id);
     if ($del_stmt->execute()) {
         $message = "<div class='badge badge-income' style='margin-bottom: 1rem;'>Transaction deleted successfully.</div>";
-        header("Refresh:1; url=transactions.php?date=$filter_date");
+        $redirect_url = $role === 'cashier' ? 'transactions.php' : "transactions.php?date=$filter_date";
+        header("Refresh:1; url=$redirect_url");
     } else {
         $message = "<div class='badge badge-expense' style='margin-bottom: 1rem;'>Error deleting transaction.</div>";
     }
@@ -42,13 +50,17 @@ if (isset($_GET['delete']) && $_SESSION['role'] === 'admin') {
 ?>
 
 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
-    <h2><i class="ph ph-receipt" style="color: var(--accent-teal);"></i> Ledger & Transactions</h2>
+    <h2><i class="ph ph-receipt" style="color: var(--accent-teal);"></i> 
+        <?php echo $role === 'cashier' ? 'Sales - Past 3 Days' : 'Ledger & Transactions'; ?>
+    </h2>
     
     <div style="display: flex; gap: 1rem; align-items: center;">
+        <?php if ($role !== 'cashier'): ?>
         <form method="GET" action="" style="display: flex; gap: 0.5rem; align-items: center;">
             <label for="date" style="color: var(--text-secondary); font-size: 0.9rem;">Month:</label>
             <input type="month" id="date" name="date" class="form-control" value="<?php echo $filter_date; ?>" style="padding: 0.5rem; max-width: 150px;" onchange="this.form.submit()">
         </form>
+        <?php endif; ?>
         
         <a href="new_transaction.php" class="btn btn-primary" style="text-decoration: none;">
             <i class="ph ph-plus"></i> Record Sale/Expense
@@ -66,11 +78,12 @@ if (isset($_GET['delete']) && $_SESSION['role'] === 'admin') {
                 <th>Type</th>
                 <th>Category/Item</th>
                 <th>Amount</th>
-                <?php if($role !== 'staff'): ?>
-                    <th>Staff Member</th>
+                <th>Barber</th>
+                <?php if($role === 'admin' || $role === 'manager'): ?>
+                    <th>Recorded By</th>
                 <?php endif; ?>
                 <th>Description</th>
-                <?php if($_SESSION['role'] === 'admin'): ?>
+                <?php if($role === 'admin'): ?>
                     <th style="text-align: right;">Action</th>
                 <?php endif; ?>
             </tr>
@@ -100,7 +113,17 @@ if (isset($_GET['delete']) && $_SESSION['role'] === 'admin') {
                     <td class="<?php echo $t['type'] == 'income' ? 'text-success' : 'text-danger'; ?>" style="font-weight: 600;">
                         $<?php echo number_format($t['amount'], 2); ?>
                     </td>
-                    <?php if($role !== 'staff'): ?>
+                    <td>
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <?php if ($t['barber_name']): ?>
+                                <i class="ph ph-user-circle" style="color: var(--accent-blue);"></i>
+                                <?php echo htmlspecialchars($t['barber_name']); ?>
+                            <?php else: ?>
+                                <span style="color: var(--text-secondary);">-</span>
+                            <?php endif; ?>
+                        </div>
+                    </td>
+                    <?php if($role === 'admin' || $role === 'manager'): ?>
                         <td>
                             <div style="display: flex; align-items: center; gap: 6px;">
                                 <i class="ph ph-user" style="color: var(--text-secondary);"></i>
@@ -111,9 +134,9 @@ if (isset($_GET['delete']) && $_SESSION['role'] === 'admin') {
                     <td style="color: var(--text-secondary); font-size: 0.9rem; max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="<?php echo htmlspecialchars($t['description']); ?>">
                         <?php echo htmlspecialchars($t['description']) ?: '-'; ?>
                     </td>
-                    <?php if($_SESSION['role'] === 'admin'): ?>
+                    <?php if($role === 'admin'): ?>
                         <td style="text-align: right;">
-                            <a href="transactions.php?delete=<?php echo $t['id']; ?>&date=<?php echo $filter_date; ?>" class="btn btn-outline" style="padding: 0.25rem 0.5rem; color: var(--accent-rose); border-color: rgba(244,63,94,0.3);" onclick="return confirm('Delete transaction completely?');">
+                            <a href="transactions.php?delete=<?php echo $t['id']; ?><?php echo $role !== 'cashier' ? '&date=' . $filter_date : ''; ?>" class="btn btn-outline" style="padding: 0.25rem 0.5rem; color: var(--accent-rose); border-color: rgba(244,63,94,0.3);" onclick="return confirm('Delete transaction completely?');">
                                 <i class="ph ph-trash"></i>
                             </a>
                         </td>
@@ -123,7 +146,7 @@ if (isset($_GET['delete']) && $_SESSION['role'] === 'admin') {
             
             <?php if($transactions->num_rows === 0): ?>
                 <tr>
-                    <td colspan="<?php echo $role === 'admin' ? '7' : ($role === 'manager' ? '6' : '5'); ?>" style="text-align: center; padding: 3rem; color: var(--text-secondary);">
+                    <td colspan="8" style="text-align: center; padding: 3rem; color: var(--text-secondary);">
                         <i class="ph ph-receipt" style="font-size: 3rem; opacity: 0.5; margin-bottom: 1rem; display: block;"></i>
                         No transactions found for this period.
                     </td>
@@ -134,9 +157,11 @@ if (isset($_GET['delete']) && $_SESSION['role'] === 'admin') {
     
     <?php if($transactions->num_rows > 0): ?>
     <div style="padding: 1rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 2rem; background: rgba(0,0,0,0.2);">
-        <div><span style="color: var(--text-secondary);">Period Income:</span> <span class="text-success" style="font-weight:bold;font-size:1.1rem;margin-left:0.5rem;">$<?php echo number_format($total_income, 2); ?></span></div>
-        <div><span style="color: var(--text-secondary);">Period Expense:</span> <span class="text-danger" style="font-weight:bold;font-size:1.1rem;margin-left:0.5rem;">$<?php echo number_format($total_expense, 2); ?></span></div>
+        <div><span style="color: var(--text-secondary);">Total Income:</span> <span class="text-success" style="font-weight:bold;font-size:1.1rem;margin-left:0.5rem;">$<?php echo number_format($total_income, 2); ?></span></div>
+        <?php if ($role !== 'cashier'): ?>
+        <div><span style="color: var(--text-secondary);">Total Expense:</span> <span class="text-danger" style="font-weight:bold;font-size:1.1rem;margin-left:0.5rem;">$<?php echo number_format($total_expense, 2); ?></span></div>
         <div><span style="color: var(--text-secondary);">Net:</span> <span style="font-weight:bold;font-size:1.1rem;margin-left:0.5rem;color: <?php echo ($total_income - $total_expense) >= 0 ? 'var(--accent-teal)' : 'var(--accent-rose)'; ?>">$<?php echo number_format($total_income - $total_expense, 2); ?></span></div>
+        <?php endif; ?>
     </div>
     <?php endif; ?>
 </div>
