@@ -77,6 +77,7 @@ if (isset($_GET['delete']) && $_SESSION['role'] === 'admin') {
                 <th>Date & Time</th>
                 <th>Type</th>
                 <th>Category/Item</th>
+                <th>Payment</th>
                 <th>Amount</th>
                 <th>Barber</th>
                 <?php if($role === 'admin' || $role === 'manager'): ?>
@@ -109,6 +110,13 @@ if (isset($_GET['delete']) && $_SESSION['role'] === 'admin') {
                     </td>
                     <td style="font-weight: 500;">
                         <?php echo htmlspecialchars($t['service_name'] ?? 'Other/Custom'); ?>
+                    </td>
+                    <td>
+                        <?php if (($t['payment_method'] ?? 'cash') === 'cash'): ?>
+                            <span class="badge" style="background: rgba(45,212,191,0.1); color: var(--accent-teal); border: 1px solid rgba(45,212,191,0.2);"><i class="ph ph-money"></i> Cash</span>
+                        <?php else: ?>
+                            <span class="badge" style="background: rgba(59,130,246,0.1); color: var(--accent-blue); border: 1px solid rgba(59,130,246,0.2);"><i class="ph ph-bank"></i> Bank</span>
+                        <?php endif; ?>
                     </td>
                     <td class="<?php echo $t['type'] == 'income' ? 'text-success' : 'text-danger'; ?>" style="font-weight: 600;">
                         $<?php echo number_format($t['amount'], 2); ?>
@@ -146,7 +154,7 @@ if (isset($_GET['delete']) && $_SESSION['role'] === 'admin') {
             
             <?php if($transactions->num_rows === 0): ?>
                 <tr>
-                    <td colspan="8" style="text-align: center; padding: 3rem; color: var(--text-secondary);">
+                    <td colspan="9" style="text-align: center; padding: 3rem; color: var(--text-secondary);">
                         <i class="ph ph-receipt" style="font-size: 3rem; opacity: 0.5; margin-bottom: 1rem; display: block;"></i>
                         No transactions found for this period.
                     </td>

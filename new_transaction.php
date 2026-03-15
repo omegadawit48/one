@@ -23,6 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $type = sanitize($conn, $_POST['type']);
     $amount = floatval($_POST['amount']);
     $description = sanitize($conn, $_POST['description']);
+    $payment_method = sanitize($conn, $_POST['payment_method']);
     $service_id = isset($_POST['service_id']) && $_POST['service_id'] !== '' ? intval($_POST['service_id']) : NULL;
     $barber_id = isset($_POST['barber_id']) && $_POST['barber_id'] !== '' ? intval($_POST['barber_id']) : NULL;
     
@@ -31,11 +32,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = "Amount must be greater than zero.";
     } elseif (!in_array($type, ['income', 'expense'])) {
         $error = "Invalid transaction type.";
+    } elseif (!in_array($payment_method, ['cash', 'bank'])) {
+        $error = "Please select a valid payment method.";
     } elseif ($type === 'income' && $role === 'cashier' && !$barber_id) {
         $error = "Please select the barber who performed this service.";
     } else {
-        $stmt = $conn->prepare("INSERT INTO transactions (amount, type, description, service_id, user_id, barber_id) VALUES (?, ?, ?, ?, ?, ?)");
-        $stmt->bind_param("dssiii", $amount, $type, $description, $service_id, $user_id, $barber_id);
+        $stmt = $conn->prepare("INSERT INTO transactions (amount, type, description, payment_method, service_id, user_id, barber_id) VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $stmt->bind_param("dsssiii", $amount, $type, $description, $payment_method, $service_id, $user_id, $barber_id);
         
         if ($stmt->execute()) {
             $success = "Transaction recorded successfully!";
@@ -45,6 +48,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 ?>
+
+<style>
+    .payment-toggle {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.75rem;
+    }
+    .payment-toggle label { cursor: pointer; }
+    .payment-toggle input[type="radio"] { display: none; }
+    .payment-toggle .pay-card {
+        padding: 0.75rem;
+        text-align: center;
+        border-radius: 8px;
+        border: 1px solid var(--border-color);
+        background: rgba(15, 23, 42, 0.5);
+        transition: all 0.2s;
+        font-weight: 600;
+        font-size: 0.9rem;
+    }
+    .payment-toggle input[type="radio"]:checked + .pay-card {
+        border-color: var(--accent-teal);
+        background: rgba(45, 212, 191, 0.1);
+        color: var(--accent-teal);
+        box-shadow: 0 0 10px rgba(45, 212, 191, 0.15);
+    }
+</style>
 
 <div style="max-width: 600px; margin: 0 auto;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
@@ -90,7 +119,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <?php endif; ?>
             </div>
 
-            <!-- Barber Selection (visible to cashier, admin, manager) -->
+            <!-- Barber Selection -->
             <div id="barber-group" class="form-group">
                 <label class="form-label" for="barber_id">
                     <i class="ph ph-user-circle" style="color: var(--accent-blue);"></i> Barber Who Performed Service
@@ -103,7 +132,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </option>
                     <?php endwhile; ?>
                 </select>
-                <small style="color: var(--text-secondary); display: block; margin-top: 0.5rem;">Select which barber performed this service.</small>
             </div>
 
             <div id="service-group" class="form-group">
@@ -116,7 +144,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </option>
                     <?php endwhile; ?>
                 </select>
-                <small style="color: var(--text-secondary); display: block; margin-top: 0.5rem;">Selecting a service will auto-fill the amount.</small>
             </div>
 
             <div class="form-group" id="amount-group">
@@ -124,6 +151,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div style="position: relative;">
                     <span style="position: absolute; left: 1rem; top: 0.75rem; color: var(--text-secondary);">$</span>
                     <input type="number" step="0.01" id="amount" name="amount" class="form-control" required style="padding-left: 2rem; font-size: 1.2rem; font-weight: bold;">
+                </div>
+            </div>
+
+            <!-- Payment Method Toggle -->
+            <div class="form-group">
+                <label class="form-label">Payment Method</label>
+                <div class="payment-toggle">
+                    <label>
+                        <input type="radio" name="payment_method" value="cash" checked>
+                        <div class="pay-card"><i class="ph ph-money"></i> Cash</div>
+                    </label>
+                    <label>
+                        <input type="radio" name="payment_method" value="bank">
+                        <div class="pay-card"><i class="ph ph-bank"></i> Bank</div>
+                    </label>
                 </div>
             </div>
 
@@ -151,26 +193,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             cardIncome.style.borderColor = 'var(--accent-teal)';
             cardIncome.style.borderWidth = '2px';
             cardIncome.style.opacity = '1';
-            
-            if (cardExpense) {
-                cardExpense.style.borderColor = 'var(--border-color)';
-                cardExpense.style.borderWidth = '1px';
-                cardExpense.style.opacity = '0.6';
-            }
-            
+            if (cardExpense) { cardExpense.style.borderColor = 'var(--border-color)'; cardExpense.style.borderWidth = '1px'; cardExpense.style.opacity = '0.6'; }
             serviceGroup.style.display = 'block';
             barberGroup.style.display = 'block';
         } else {
-            if (cardExpense) {
-                cardExpense.style.borderColor = 'var(--accent-rose)';
-                cardExpense.style.borderWidth = '2px';
-                cardExpense.style.opacity = '1';
-            }
-            
+            if (cardExpense) { cardExpense.style.borderColor = 'var(--accent-rose)'; cardExpense.style.borderWidth = '2px'; cardExpense.style.opacity = '1'; }
             cardIncome.style.borderColor = 'var(--border-color)';
             cardIncome.style.borderWidth = '1px';
             cardIncome.style.opacity = '0.6';
-            
             serviceGroup.style.display = 'none';
             barberGroup.style.display = 'none';
             document.getElementById('service_id').value = '';
@@ -182,10 +212,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         const serviceSelect = document.getElementById('service_id');
         const selectedOption = serviceSelect.options[serviceSelect.selectedIndex];
         const price = selectedOption.getAttribute('data-price');
-        
-        if (price) {
-            document.getElementById('amount').value = price;
-        }
+        if (price) document.getElementById('amount').value = price;
     }
 </script>
 
